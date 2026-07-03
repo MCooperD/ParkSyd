@@ -343,6 +343,72 @@
     border-radius: 50%;
     box-shadow: 0 0 0 6px rgba(74,158,255,0.25);
   }
+
+  #sidebar-overlay { display: none; }
+
+  /* ===== MOBILE LAYOUT ===== */
+  #menu-btn { display: none; }
+
+  @media (max-width: 768px) {
+    #app {
+      grid-template-columns: 1fr;
+      position: relative;
+    }
+    #sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 85vw;
+      max-width: 340px;
+      height: 100vh;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      z-index: 2000;
+    }
+    #sidebar.open { transform: translateX(0); }
+    #sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1500;
+    }
+    #sidebar-overlay.visible { display: block; }
+    #menu-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--asphalt-light);
+      color: var(--line-yellow);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      width: 44px;
+      height: 44px;
+      font-size: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+      flex-shrink: 0;
+    }
+    #topbar {
+      left: 12px;
+      right: 12px;
+      top: 12px;
+      flex-wrap: wrap;
+    }
+    #search-box {
+      order: 3;
+      flex-basis: 100%;
+    }
+    #add-spot-btn, #locate-btn {
+      font-size: 12px;
+      padding: 0 10px;
+      height: 44px;
+    }
+    #add-spot-form {
+      width: 85vw;
+      max-width: 300px;
+      left: 12px !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -378,10 +444,12 @@
     </div>
   </div>
   <div id="topbar">
+    <button id="menu-btn">☰</button>
     <input id="search-box" type="text" placeholder="Search by name or suburb… (e.g. Bondi, Town Hall, Coogee)" />
     <button id="add-spot-btn">📍 + Add a spot</button>
     <button id="locate-btn">📍 Use my location</button>
   </div>
+  <div id="sidebar-overlay"></div>
   <div id="add-spot-form">
     <div style="font-family:'Oswald',sans-serif; color:var(--community); font-size:14px; font-weight:600;">Add a parking spot</div>
     <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Click a location on the map first, then fill this in.</div>
@@ -427,13 +495,13 @@
 
   // PASTE YOUR CONFIG FROM FIREBASE HERE:
   const firebaseConfig = {
-  apiKey: "AIzaSyAGecZ85ZQxZrkrbDMWLjjjho9wuzIAbSE",
-  authDomain: "parksyd-7b0e7.firebaseapp.com",
-  projectId: "parksyd-7b0e7",
-  storageBucket: "parksyd-7b0e7.firebasestorage.app",
-  messagingSenderId: "32806441228",
-  appId: "1:32806441228:web:8a21c72f52bfb4bacf7929"
-};
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: ""
+  };
 
   let db = null;
   if (firebaseConfig.apiKey) {
@@ -461,7 +529,7 @@
   // e.g. reject documents missing a "name" field, and consider rate
   // limiting to stop spam. Ask me when you're ready for this step.
 </script>
-<script>
+<script type="module">
   // =====================================================================
   // CONFIG — fill these in to go from sample data to real live data.
   // =====================================================================
@@ -581,35 +649,45 @@
     return res.json();
   }
 
+  const rateZonesLayer = L.layerGroup();
+
+  async function loadRateZones() {
+    if (!CONFIG.cityOfSydneyMetersUrl) return;
+    try {
+      const gj = await fetchGeojson(CONFIG.cityOfSydneyMetersUrl);
+      printSample('Ticket parking rates (zones)', gj);
+      gj.features.forEach(f => {
+        const p = f.properties;
+        const areaCode = pick(p, ['AREA', 'Area', 'AREA_ID', 'Zone', 'ZONE', 'RATE_AREA'], null);
+        const rate = AREA_RATE_MAP[areaCode] || null;
+        const color = areaCode == 1 ? '#8b7dd8' : areaCode == 2 ? '#4a9eff' : '#e07a3f';
+        const layer = L.geoJSON(f, {
+          style: { color: color, weight: 1, fillColor: color, fillOpacity: 0.12 }
+        });
+        layer.bindPopup(`
+          <div class="popup-title">Ticket parking zone</div>
+          <div class="popup-row"><b>Rate:</b> ${rate || pick(p, ['RATE', 'Rate'], 'See signage')}</div>
+          <div class="popup-row" style="font-size:11px; color:var(--text-dim); margin-top:6px;">Area-wide rate zone — not an individual spot.</div>
+        `);
+        rateZonesLayer.addLayer(layer);
+      });
+      rateZonesLayer.addTo(map);
+      document.getElementById('data-status').textContent += ` Rate zones shaded on map.`;
+    } catch (err) {
+      console.error('Rate zone load failed:', err);
+    }
+  }
+
   async function loadCityOfSydneyData() {
     const statusEl = document.getElementById('data-status');
     const loaded = [];
     const errors = [];
 
-    // --- Ticket parking rates (metered/paid) ---
-    if (CONFIG.cityOfSydneyMetersUrl) {
-      try {
-        const gj = await fetchGeojson(CONFIG.cityOfSydneyMetersUrl);
-        printSample('Ticket parking rates', gj);
-        gj.features.forEach((f, i) => {
-          const pos = featureLatLng(f);
-          if (!pos) return;
-          const p = f.properties;
-          const areaCode = pick(p, ['AREA', 'Area', 'AREA_ID', 'Zone', 'ZONE'], null);
-          const rate = AREA_RATE_MAP[areaCode] || pick(p, ['RATE', 'Rate', 'rate'], 'See sign/meter');
-          loaded.push({
-            id: `meter-${i}`,
-            name: pick(p, ['STREET', 'Street', 'STREET_NAME', 'RoadName', 'NAME'], 'Metered spot'),
-            suburb: pick(p, ['SUBURB', 'Suburb'], ''),
-            lat: pos.lat, lng: pos.lng,
-            type: 'paid',
-            cost: rate,
-            hours: pick(p, ['HOURS', 'Hours', 'RESTRICTION'], 'See signage'),
-            availability: 'Live City of Sydney ticket rate dataset'
-          });
-        });
-      } catch (err) { errors.push(`Ticket parking rates: ${err.message}`); }
-    }
+    // --- Ticket parking rates: NOT loaded as pins. This dataset is only
+    // 13 large rate-zone polygons (Area 1 / Area 2 from the PDF), not
+    // individual streets or meters — so there's no per-spot name to show.
+    // It's rendered as a shaded background layer instead (see renderRateZones
+    // below), which is a more honest representation of what the data is.
 
     // --- Council car parks (off-street) ---
     if (CONFIG.cityOfSydneyOffStreetUrl) {
@@ -930,6 +1008,18 @@
   document.querySelectorAll('.type-filter').forEach(el => el.addEventListener('change', renderMarkers));
   document.getElementById('search-box').addEventListener('input', renderMarkers);
 
+  // Mobile sidebar drawer toggle
+  const sidebarEl = document.getElementById('sidebar');
+  const overlayEl = document.getElementById('sidebar-overlay');
+  document.getElementById('menu-btn').addEventListener('click', () => {
+    sidebarEl.classList.toggle('open');
+    overlayEl.classList.toggle('visible');
+  });
+  overlayEl.addEventListener('click', () => {
+    sidebarEl.classList.remove('open');
+    overlayEl.classList.remove('visible');
+  });
+
   // =====================================================================
   // COMMUNITY-ADDED SPOTS
   // Saved to this browser's localStorage only — NOT shared with other
@@ -1039,6 +1129,7 @@
     await loadCommunitySpots();
     renderMarkers();
     loadCityOfSydneyData();
+    loadRateZones();
     loadTfnswOccupancy();
   })();
 </script>

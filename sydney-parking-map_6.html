@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParkSyd — Sydney Parking Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --asphalt: #1b1d21;
+    --asphalt-light: #26292f;
+    --line-yellow: #f4c430;
+    --line-white: #f2f0e9;
+    --free: #4caf7d;
+    --paid: #e07a3f;
+    --permit: #8b7dd8;
+    --community: #4ac9e0;
+    --panel-border: #34373d;
+    --text-dim: #9a9da3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--asphalt);
+    color: var(--line-white);
+    height: 100vh;
+    overflow: hidden;
+  }
+  #app {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    height: 100vh;
+  }
+  #sidebar {
+    background: var(--asphalt-light);
+    border-right: 2px dashed var(--line-yellow);
+    padding: 20px 18px;
+    overflow-y: auto;
+    z-index: 10;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .brand-mark {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+    color: var(--line-yellow);
+  }
+  .brand-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .tagline {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 10px 0 24px;
+    line-height: 1.5;
+    border-left: 2px solid var(--line-yellow);
+    padding-left: 10px;
+  }
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--line-yellow);
+    margin: 22px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--panel-border);
+  }
+  .filter-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13.5px;
+    transition: background 0.15s;
+  }
+  .filter-row:hover { background: rgba(244,196,48,0.06); }
+  .filter-row input { accent-color: var(--line-yellow); width: 15px; height: 15px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.free { background: var(--free); }
+  .dot.paid { background: var(--paid); }
+  .dot.permit { background: var(--permit); }
+  .dot.community { background: var(--community); border: 1.5px dashed var(--asphalt-light); }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .stat-box {
+    background: var(--asphalt);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .stat-num {
+    font-family: 'Oswald', sans-serif;
+    font-size: 22px;
+    color: var(--line-white);
+  }
+  .stat-label {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  #map { width: 100%; height: 100vh; }
+  .leaflet-popup-content-wrapper {
+    background: var(--asphalt-light);
+    color: var(--line-white);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+  }
+  .leaflet-popup-tip { background: var(--asphalt-light); }
+  .popup-title {
+    font-family: 'Oswald', sans-serif;
+    font-size: 15px;
+    margin: 0 0 6px;
+    color: var(--line-yellow);
+  }
+  .popup-row { font-size: 12.5px; color: var(--line-white); margin: 3px 0; }
+  .popup-row b { color: var(--text-dim); font-weight: 500; }
+  .badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .badge.free { background: rgba(76,175,125,0.18); color: var(--free); }
+  .badge.paid { background: rgba(224,122,63,0.18); color: var(--paid); }
+  .badge.permit { background: rgba(139,125,216,0.18); color: var(--permit); }
+  .badge.community { background: rgba(74,201,224,0.18); color: var(--community); }
+
+  .community-warning {
+    font-size: 11px;
+    color: var(--community);
+    background: rgba(74,201,224,0.1);
+    border: 1px solid rgba(74,201,224,0.3);
+    border-radius: 5px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  #add-spot-btn {
+    background: transparent;
+    color: var(--community);
+    border: 1.5px dashed var(--community);
+    border-radius: 8px;
+    padding: 0 16px;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #add-spot-btn.active {
+    background: var(--community);
+    color: var(--asphalt);
+    border-style: solid;
+  }
+
+  #add-spot-form {
+    display: none;
+    position: absolute;
+    z-index: 1000;
+    background: var(--asphalt-light);
+    border: 1px solid var(--community);
+    border-radius: 10px;
+    padding: 16px;
+    width: 280px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #add-spot-form.visible { display: block; }
+  #add-spot-form label {
+    display: block;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin: 10px 0 4px;
+  }
+  #add-spot-form input, #add-spot-form select {
+    width: 100%;
+    background: var(--asphalt);
+    border: 1px solid var(--panel-border);
+    border-radius: 5px;
+    padding: 7px 9px;
+    color: var(--line-white);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+  }
+  #add-spot-form .form-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  #add-spot-form button {
+    flex: 1;
+    border: none;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  #save-spot-btn { background: var(--community); color: var(--asphalt); }
+  #cancel-spot-btn { background: var(--panel-border); color: var(--line-white); }
+  .source-note {
+    margin-top: 20px;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    padding-top: 14px;
+    border-top: 1px solid var(--panel-border);
+  }
+  .source-note a { color: var(--line-yellow); text-decoration: none; }
+
+  #topbar {
+    position: absolute;
+    top: 16px;
+    left: 340px;
+    right: 16px;
+    z-index: 1000;
+    display: flex;
+    gap: 10px;
+  }
+  #search-box {
+    flex: 1;
+    background: var(--asphalt-light);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--line-white);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    outline: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  }
+  #search-box::placeholder { color: var(--text-dim); }
+  #locate-btn {
+    background: var(--line-yellow);
+    color: var(--asphalt);
+    border: none;
+    border-radius: 8px;
+    padding: 0 18px;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    transition: transform 0.1s;
+  }
+  #locate-btn:active { transform: scale(0.97); }
+  #locate-btn.active { background: var(--free); color: var(--asphalt); }
+
+  .status-pill {
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: rgba(76,175,125,0.15);
+    color: var(--free);
+    font-family: 'JetBrains Mono', monospace;
+    display: inline-block;
+    margin-top: 6px;
+  }
+  .status-pill.err { background: rgba(224,122,63,0.15); color: var(--paid); }
+
+  .nearby-item {
+    padding: 9px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .nearby-item:hover { background: rgba(244,196,48,0.06); }
+  .nearby-item .n-name { color: var(--line-white); font-weight: 500; }
+  .nearby-item .n-meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .nearby-item .n-dist { color: var(--line-yellow); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+  .nav-btn {
+    margin-top: 8px;
+    width: 100%;
+    background: var(--line-yellow);
+    color: var(--asphalt);
+    border: none;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .nearby-nav-btn {
+    background: transparent;
+    color: var(--line-yellow);
+    border: 1px solid var(--line-yellow);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .nearby-nav-btn:hover { background: rgba(244,196,48,0.12); }
+
+  .you-marker {
+    width: 18px; height: 18px;
+    background: #4a9eff;
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 6px rgba(74,158,255,0.25);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="brand">
+      <span class="brand-mark">ParkSyd</span>
+    </div>
+    <div class="brand-sub">Sydney Parking Prototype</div>
+    <div class="tagline">Mapping parking type, cost, and typical availability across Sydney, with live location for use on the go.</div>
+
+    <div class="section-label">Filter</div>
+    <label class="filter-row"><input type="checkbox" class="type-filter" value="free" checked><span class="dot free"></span> Free parking</label>
+    <label class="filter-row"><input type="checkbox" class="type-filter" value="paid" checked><span class="dot paid"></span> Paid / metered</label>
+    <label class="filter-row"><input type="checkbox" class="type-filter" value="permit" checked><span class="dot permit"></span> Permit zone</label>
+    <label class="filter-row"><input type="checkbox" class="type-filter" value="community" checked><span class="dot community"></span> Community-added</label>
+
+    <div class="section-label">Overview</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-num" id="stat-total">–</div><div class="stat-label">Spots shown</div></div>
+      <div class="stat-box"><div class="stat-num" id="stat-free">–</div><div class="stat-label">Free</div></div>
+    </div>
+    <div id="loc-status" class="status-pill">Location off</div>
+
+    <div class="section-label">Nearby</div>
+    <div id="nearby-list" style="font-size:12px; color:var(--text-dim);">Turn on location to see spots ranked by distance.</div>
+
+    <div class="section-label">Data status</div>
+    <div id="data-status" style="font-size:11.5px; color:var(--text-dim); line-height:1.6;">Loading City of Sydney datasets…</div>
+
+    <div class="source-note">
+      Live sources: <a href="https://data.cityofsydney.nsw.gov.au/" target="_blank">City of Sydney Data Hub</a> (meters, off-street) and <a href="https://opendata.transport.nsw.gov.au/" target="_blank">TfNSW Car Park API</a> (live occupancy, via proxy — see notes in code).
+    </div>
+  </div>
+  <div id="topbar">
+    <input id="search-box" type="text" placeholder="Search by name or suburb… (e.g. Bondi, Town Hall, Coogee)" />
+    <button id="add-spot-btn">📍 + Add a spot</button>
+    <button id="locate-btn">📍 Use my location</button>
+  </div>
+  <div id="add-spot-form">
+    <div style="font-family:'Oswald',sans-serif; color:var(--community); font-size:14px; font-weight:600;">Add a parking spot</div>
+    <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Click a location on the map first, then fill this in.</div>
+    <label>Name / street</label>
+    <input type="text" id="new-spot-name" placeholder="e.g. Smith St, near the corner" />
+    <label>Type</label>
+    <select id="new-spot-type">
+      <option value="free">Free</option>
+      <option value="paid">Paid / metered</option>
+      <option value="permit">Permit zone</option>
+    </select>
+    <label>Cost</label>
+    <input type="text" id="new-spot-cost" placeholder="e.g. Free, 2hr limit" />
+    <label>What you noticed</label>
+    <input type="text" id="new-spot-notes" placeholder="e.g. Usually free after 6pm" />
+    <div class="form-actions">
+      <button id="cancel-spot-btn">Cancel</button>
+      <button id="save-spot-btn">Save spot</button>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+<script type="module">
+  // Firebase Firestore — makes "Add a spot" genuinely shared across every
+  // user of the app, not just saved to one device. Free tier is generous
+  // (50k reads/20k writes per day), no cost for a project this size.
+  //
+  // SETUP (free, ~5 minutes):
+  // 1. Go to console.firebase.google.com -> Create a project (any name)
+  // 2. In the project, click the "</>" (Web app) icon to register a web app
+  // 3. Firebase gives you a firebaseConfig object -- paste it in below
+  // 4. In the left menu go to Build -> Firestore Database -> Create database
+  //    -> Start in TEST MODE for now (makes it publicly readable/writable --
+  //    fine while prototyping, but tighten this before any real launch,
+  //    see the security note near the bottom of this script)
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // PASTE YOUR CONFIG FROM FIREBASE HERE:
+  const firebaseConfig = {
+  apiKey: "AIzaSyAGecZ85ZQxZrkrbDMWLjjjho9wuzIAbSE",
+  authDomain: "parksyd-7b0e7.firebaseapp.com",
+  projectId: "parksyd-7b0e7",
+  storageBucket: "parksyd-7b0e7.firebasestorage.app",
+  messagingSenderId: "32806441228",
+  appId: "1:32806441228:web:8a21c72f52bfb4bacf7929"
+};
+
+  let db = null;
+  if (firebaseConfig.apiKey) {
+    const fbApp = initializeApp(firebaseConfig);
+    db = getFirestore(fbApp);
+  }
+
+  // Exposed on window so the main (non-module) script below can use them
+  window.firestoreReady = !!db;
+  window.fetchCommunitySpotsFromFirestore = async function () {
+    if (!db) return [];
+    const snapshot = await getDocs(collection(db, "communitySpots"));
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  };
+  window.saveCommunitySpotToFirestore = async function (spot) {
+    if (!db) return false;
+    await addDoc(collection(db, "communitySpots"), spot);
+    return true;
+  };
+
+  // SECURITY NOTE for later: "test mode" Firestore rules allow anyone to
+  // read/write anything, which is fine to get this working but not for a
+  // real launch. Before sharing this widely, tighten the rules (Firestore
+  // -> Rules tab) to at least require each write to match a basic shape,
+  // e.g. reject documents missing a "name" field, and consider rate
+  // limiting to stop spam. Ask me when you're ready for this step.
+</script>
+<script>
+  // =====================================================================
+  // CONFIG — fill these in to go from sample data to real live data.
+  // =====================================================================
+  const CONFIG = {
+    // Found via the City of Sydney Data Hub catalog export — these are the
+    // real, working FeatureServer base URLs (no item-ID hunting needed).
+    // Each has /0/query?where=1=1&outFields=*&f=geojson appended when fetched.
+    cityOfSydneyMetersUrl: "https://services1.arcgis.com/cNVyNtjGVZybOQWZ/arcgis/rest/services/Ticket_parking_rates/FeatureServer/0/query?where=1=1&outFields=*&f=geojson",
+    cityOfSydneyOffStreetUrl: "https://services1.arcgis.com/cNVyNtjGVZybOQWZ/arcgis/rest/services/Council_car_parks/FeatureServer/0/query?where=1=1&outFields=*&f=geojson",
+    cityOfSydneyPermitsUrl: "https://services1.arcgis.com/cNVyNtjGVZybOQWZ/arcgis/rest/services/ParkingPermits/FeatureServer/0/query?where=1=1&outFields=*&f=geojson",
+    cityOfSydneyFree15Url: "https://services1.arcgis.com/cNVyNtjGVZybOQWZ/arcgis/rest/services/Free_15_minute_parking/FeatureServer/0/query?where=1=1&outFields=*&f=geojson",
+
+    // TfNSW Car Park API — still needs the proxy (see netlify-tfnsw-proxy-example.js)
+    tfnswProxyUrl: "",
+  };
+
+  // From "Ticket parking rates 2026-2027" PDF: area codes -> hourly rate.
+  // If the ticket rates dataset has a numeric area/zone field, this maps it
+  // to a real dollar figure. Check the browser console after first load —
+  // logAttributeSample() below prints the real field names so this can be
+  // adjusted to match (the exact field name isn't guaranteed in advance).
+  const AREA_RATE_MAP = {
+    1: "$9.00/hr", // purple zone: Sydney CBD, The Rocks, Barangaroo, Woolloomooloo, Darlinghurst
+    2: "$7.00/hr", // blue zone: Pyrmont, Ultimo, Glebe, Surry Hills, Newtown, Camperdown, Redfern, Alexandria, Zetland
+  };
+
+  // ---- BASE / SAMPLE DATA ----
+  // Illustrative spots across the CBD and Eastern Suburbs, in the same
+  // shape real data will be converted into. These stay on the map as a
+  // fallback, and real records (once CONFIG URLs are filled in) are
+  // added on top automatically.
+  const parkingSpots = [
+    // --- CBD / Inner city ---
+    { id: 1, name: "Town Hall — George St meters", suburb: "Sydney CBD", lat: -33.8735, lng: 151.2069, type: "paid", cost: "$7.20/hr", hours: "8am–10pm Mon–Sat", availability: "Busy 9am–5pm weekdays, easier after 6pm" },
+    { id: 2, name: "Wilson Parking — Park St", suburb: "Sydney CBD", lat: -33.8730, lng: 151.2078, type: "paid", cost: "$18 early bird before 9:30am", hours: "24/7", availability: "Early bird fills by 8:30am" },
+    { id: 3, name: "Circular Quay — Alfred St meters", suburb: "Circular Quay", lat: -33.8614, lng: 151.2108, type: "paid", cost: "$8.40/hr", hours: "8am–10pm daily", availability: "Very limited, tourist-heavy all day" },
+    { id: 4, name: "The Rocks — Playfair St permit zone", suburb: "The Rocks", lat: -33.8592, lng: 151.2088, type: "permit", cost: "Residents only 8am–6pm", hours: "Unrestricted after 6pm", availability: "Open to public evenings/weekends" },
+    { id: 5, name: "Darling Harbour — Tumbalong Park free 2P", suburb: "Darling Harbour", lat: -33.8737, lng: 151.2018, type: "free", cost: "Free, 2hr limit", hours: "8am–6pm, unrestricted after", availability: "Fills fast on weekends" },
+    { id: 6, name: "UTS — Broadway off-street", suburb: "Ultimo", lat: -33.8833, lng: 151.1994, type: "paid", cost: "$15/day student rate", hours: "6am–11pm", availability: "Fullest during semester 9am–3pm" },
+    { id: 7, name: "Central Station — Eddy Ave commuter", suburb: "Haymarket", lat: -33.8830, lng: 151.2065, type: "paid", cost: "$25/day", hours: "24/7", availability: "Near full by 8am on weekdays" },
+    { id: 8, name: "Glebe Point Rd — 2P free zone", suburb: "Glebe", lat: -33.8795, lng: 151.1934, type: "free", cost: "Free, 2hr limit 8am–6pm", hours: "Unrestricted evenings", availability: "Reasonable availability outside lunch rush" },
+    { id: 9, name: "Newtown — King St permit zone", suburb: "Newtown", lat: -33.8965, lng: 151.1794, type: "permit", cost: "Residents only weekdays", hours: "Public parking after 6pm + weekends", availability: "Tight during weekday business hours" },
+    { id: 10, name: "Pyrmont — Star Casino off-street", suburb: "Pyrmont", lat: -33.8688, lng: 151.1958, type: "paid", cost: "$12 flat rate 6pm–close", hours: "24/7", availability: "Good availability outside event nights" },
+
+    // --- Eastern Suburbs ---
+    { id: 11, name: "Bondi Beach — Campbell Parade meters", suburb: "Bondi Beach", lat: -33.8908, lng: 151.2743, type: "paid", cost: "$5.50/hr, 2hr max in peak season", hours: "8am–10pm", availability: "Extremely tight summer weekends, easy on winter weekdays" },
+    { id: 12, name: "Bondi — Warners Ave free 2P", suburb: "Bondi", lat: -33.8930, lng: 151.2685, type: "free", cost: "Free, 2hr limit", hours: "8am–6pm", availability: "A few streets back from the beach, moderate availability" },
+    { id: 13, name: "North Bondi — Ramsgate Ave car park", suburb: "North Bondi", lat: -33.8877, lng: 151.2825, type: "paid", cost: "$4/hr", hours: "7am–8pm", availability: "Fills by 9am on weekends" },
+    { id: 14, name: "Bronte Beach — car park", suburb: "Bronte", lat: -33.9036, lng: 151.2647, type: "paid", cost: "$3.50/hr", hours: "8am–6pm", availability: "Small lot, full most weekend mornings" },
+    { id: 15, name: "Coogee Beach — Arden St meters", suburb: "Coogee", lat: -33.9205, lng: 151.2577, type: "paid", cost: "$4.50/hr", hours: "8am–10pm", availability: "Busy weekends, reasonable weekday evenings" },
+    { id: 16, name: "Coogee — Byron St permit zone", suburb: "Coogee", lat: -33.9187, lng: 151.2553, type: "permit", cost: "Residents only weekdays 8am–6pm", hours: "Public after 6pm + weekends", availability: "Good option outside restricted hours" },
+    { id: 17, name: "Randwick — Belmore Rd free 2P", suburb: "Randwick", lat: -33.9146, lng: 151.2437, type: "free", cost: "Free, 2hr limit", hours: "8am–6pm Mon–Sat", availability: "Reasonable outside racing/market days" },
+    { id: 18, name: "Randwick Racecourse — general parking", suburb: "Randwick", lat: -33.9083, lng: 151.2320, type: "paid", cost: "Free non-race days, paid event days", hours: "Varies by event", availability: "Wide open non-race days" },
+    { id: 19, name: "Paddington — Oxford St meters", suburb: "Paddington", lat: -33.8848, lng: 151.2266, type: "paid", cost: "$6.60/hr", hours: "8am–8pm Mon–Sat", availability: "Tight Saturdays (markets), easier weekdays" },
+    { id: 20, name: "Paddington — side streets permit zone", suburb: "Paddington", lat: -33.8862, lng: 151.2244, type: "permit", cost: "Residents only", hours: "Public evenings/Sundays", availability: "Worth checking after 6pm" },
+    { id: 21, name: "Double Bay — Bay St off-street", suburb: "Double Bay", lat: -33.8775, lng: 151.2427, type: "paid", cost: "$5/hr", hours: "8am–8pm", availability: "Moderate, busiest around lunch" },
+    { id: 22, name: "Rose Bay — free foreshore parking", suburb: "Rose Bay", lat: -33.8703, lng: 151.2717, type: "free", cost: "Free, 4hr limit", hours: "Unrestricted", availability: "Good most days, busy weekend mornings" },
+    { id: 23, name: "Watsons Bay — The Gap car park", suburb: "Watsons Bay", lat: -33.8402, lng: 151.2814, type: "free", cost: "Free, 4hr limit", hours: "Unrestricted", availability: "Fills fast weekend afternoons" },
+    { id: 24, name: "Vaucluse — Nielsen Park free parking", suburb: "Vaucluse", lat: -33.8560, lng: 151.2696, type: "free", cost: "Free, 4hr limit", hours: "6am–8pm gates", availability: "Fills by 10am summer weekends" },
+    { id: 25, name: "Maroubra Beach — Marine Pde meters", suburb: "Maroubra", lat: -33.9500, lng: 151.2570, type: "paid", cost: "$3.80/hr", hours: "8am–8pm", availability: "Good availability outside peak summer" },
+    { id: 26, name: "Bondi Junction — Oxford St off-street", suburb: "Bondi Junction", lat: -33.8916, lng: 151.2483, type: "paid", cost: "$4.90/hr", hours: "7am–9pm", availability: "Tight near Westfield weekends" },
+    { id: 27, name: "Bondi Junction — Grafton St permit zone", suburb: "Bondi Junction", lat: -33.8925, lng: 151.2500, type: "permit", cost: "Residents only weekdays", hours: "Public evenings/weekends", availability: "Reasonable outside business hours" },
+    { id: 28, name: "Clovelly Beach — car park", suburb: "Clovelly", lat: -33.9127, lng: 151.2665, type: "free", cost: "Free, 4hr limit", hours: "Unrestricted", availability: "Small lot, fills early weekends" },
+    { id: 29, name: "Tamarama Beach — free 1P", suburb: "Tamarama", lat: -33.9006, lng: 151.2716, type: "free", cost: "Free, 1hr limit", hours: "8am–6pm", availability: "Very small, fills within an hour on warm days" },
+    { id: 30, name: "Kingsford — Anzac Pde meters", suburb: "Kingsford", lat: -33.9187, lng: 151.2258, type: "paid", cost: "$3.40/hr", hours: "8am–6pm", availability: "Busy near UNSW during semester" },
+    { id: 31, name: "Kensington — UNSW off-street", suburb: "Kensington", lat: -33.9173, lng: 151.2313, type: "paid", cost: "$16/day", hours: "6am–10pm", availability: "Near full weekdays during teaching weeks" },
+    { id: 32, name: "Malabar — free foreshore parking", suburb: "Malabar", lat: -33.9666, lng: 151.2534, type: "free", cost: "Free, unlimited", hours: "Unrestricted", availability: "Good availability most days" },
+    { id: 33, name: "Little Bay — free parking", suburb: "Little Bay", lat: -33.9769, lng: 151.2445, type: "free", cost: "Free, unlimited", hours: "Unrestricted", availability: "Plenty of space outside peak summer weekends" },
+    { id: 34, name: "Dover Heights — free 2P", suburb: "Dover Heights", lat: -33.8721, lng: 151.2777, type: "free", cost: "Free, 2hr limit", hours: "8am–6pm", availability: "Generally easy to find a spot" },
+    { id: 35, name: "Edgecliff — New South Head Rd off-street", suburb: "Edgecliff", lat: -33.8776, lng: 151.2358, type: "paid", cost: "$5.20/hr", hours: "24/7", availability: "Moderate, busiest weekday mornings" },
+    { id: 36, name: "Elizabeth Bay — permit zone", suburb: "Elizabeth Bay", lat: -33.8697, lng: 151.2255, type: "permit", cost: "Residents only", hours: "Public evenings/weekends", availability: "Very tight during restricted hours" },
+    { id: 37, name: "Point Piper — free foreshore parking", suburb: "Point Piper", lat: -33.8608, lng: 151.2455, type: "free", cost: "Free, 2hr limit", hours: "Unrestricted", availability: "Quiet, usually easy to find a spot" },
+    { id: 38, name: "Woollahra — Queen St meters", suburb: "Woollahra", lat: -33.8865, lng: 151.2404, type: "paid", cost: "$5.80/hr", hours: "8am–6pm Mon–Sat", availability: "Busy around antique/homeware shopping hours" },
+  ];
+
+  // Track which spots came from live data vs sample, for the status panel
+  let liveDataCount = 0;
+
+  // =====================================================================
+  // REAL DATA LOADING
+  // =====================================================================
+
+  // Different ArcGIS services name their fields differently. This tries a
+  // list of likely candidates and falls back gracefully. Open the browser
+  // console (F12) after load to see printSample() output confirming the
+  // real field names if something looks wrong (e.g. "Metered spot" showing
+  // instead of a street name).
+  function pick(props, candidates, fallback) {
+    for (const key of candidates) {
+      if (props[key] !== undefined && props[key] !== null && props[key] !== "") return props[key];
+    }
+    return fallback;
+  }
+
+  function printSample(label, geojson) {
+    if (geojson.features && geojson.features[0]) {
+      console.log(`--- ${label}: sample fields ---`, geojson.features[0].properties);
+    }
+  }
+
+  function featureLatLng(feature) {
+    // Points come straight through; polygons/lines use their first coordinate
+    // as a representative marker location.
+    const g = feature.geometry;
+    if (!g) return null;
+    if (g.type === "Point") return { lat: g.coordinates[1], lng: g.coordinates[0] };
+    if (g.type === "Polygon") return { lat: g.coordinates[0][0][1], lng: g.coordinates[0][0][0] };
+    if (g.type === "MultiPolygon") return { lat: g.coordinates[0][0][0][1], lng: g.coordinates[0][0][0][0] };
+    if (g.type === "LineString") return { lat: g.coordinates[0][1], lng: g.coordinates[0][0] };
+    if (g.type === "MultiLineString") return { lat: g.coordinates[0][0][1], lng: g.coordinates[0][0][0] };
+    return null;
+  }
+
+  async function fetchGeojson(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function loadCityOfSydneyData() {
+    const statusEl = document.getElementById('data-status');
+    const loaded = [];
+    const errors = [];
+
+    // --- Ticket parking rates (metered/paid) ---
+    if (CONFIG.cityOfSydneyMetersUrl) {
+      try {
+        const gj = await fetchGeojson(CONFIG.cityOfSydneyMetersUrl);
+        printSample('Ticket parking rates', gj);
+        gj.features.forEach((f, i) => {
+          const pos = featureLatLng(f);
+          if (!pos) return;
+          const p = f.properties;
+          const areaCode = pick(p, ['AREA', 'Area', 'AREA_ID', 'Zone', 'ZONE'], null);
+          const rate = AREA_RATE_MAP[areaCode] || pick(p, ['RATE', 'Rate', 'rate'], 'See sign/meter');
+          loaded.push({
+            id: `meter-${i}`,
+            name: pick(p, ['STREET', 'Street', 'STREET_NAME', 'RoadName', 'NAME'], 'Metered spot'),
+            suburb: pick(p, ['SUBURB', 'Suburb'], ''),
+            lat: pos.lat, lng: pos.lng,
+            type: 'paid',
+            cost: rate,
+            hours: pick(p, ['HOURS', 'Hours', 'RESTRICTION'], 'See signage'),
+            availability: 'Live City of Sydney ticket rate dataset'
+          });
+        });
+      } catch (err) { errors.push(`Ticket parking rates: ${err.message}`); }
+    }
+
+    // --- Council car parks (off-street) ---
+    if (CONFIG.cityOfSydneyOffStreetUrl) {
+      try {
+        const gj = await fetchGeojson(CONFIG.cityOfSydneyOffStreetUrl);
+        printSample('Council car parks', gj);
+        gj.features.forEach((f, i) => {
+          const pos = featureLatLng(f);
+          if (!pos) return;
+          const p = f.properties;
+          loaded.push({
+            id: `offstreet-${i}`,
+            name: pick(p, ['NAME', 'Name', 'SITE_NAME', 'CARPARK_NAME'], 'Council car park'),
+            suburb: pick(p, ['SUBURB', 'Suburb'], ''),
+            lat: pos.lat, lng: pos.lng,
+            type: 'paid',
+            cost: pick(p, ['RATE', 'Rate', 'TARIFF'], 'See operator'),
+            hours: pick(p, ['HOURS', 'Hours', 'OPENING_HOURS'], 'Varies'),
+            availability: 'Live council car park dataset'
+          });
+        });
+      } catch (err) { errors.push(`Council car parks: ${err.message}`); }
+    }
+
+    // --- Parking permit areas ---
+    if (CONFIG.cityOfSydneyPermitsUrl) {
+      try {
+        const gj = await fetchGeojson(CONFIG.cityOfSydneyPermitsUrl);
+        printSample('Parking permits areas', gj);
+        gj.features.forEach((f, i) => {
+          const pos = featureLatLng(f);
+          if (!pos) return;
+          const p = f.properties;
+          loaded.push({
+            id: `permit-${i}`,
+            name: pick(p, ['ZONE', 'Zone', 'AREA_NAME', 'NAME'], 'Permit zone'),
+            suburb: pick(p, ['SUBURB', 'Suburb'], ''),
+            lat: pos.lat, lng: pos.lng,
+            type: 'permit',
+            cost: 'Residents only during restricted hours',
+            hours: pick(p, ['HOURS', 'Hours', 'RESTRICTION'], 'Check signage'),
+            availability: 'Live permit zone boundary — public parking usually OK outside restricted hours'
+          });
+        });
+      } catch (err) { errors.push(`Parking permits: ${err.message}`); }
+    }
+
+    // --- Free 15 minute parking ---
+    if (CONFIG.cityOfSydneyFree15Url) {
+      try {
+        const gj = await fetchGeojson(CONFIG.cityOfSydneyFree15Url);
+        printSample('Free 15 minute parking', gj);
+        gj.features.forEach((f, i) => {
+          const pos = featureLatLng(f);
+          if (!pos) return;
+          const p = f.properties;
+          loaded.push({
+            id: `free15-${i}`,
+            name: pick(p, ['STREET', 'Street', 'NAME'], 'Free 15-min spot'),
+            suburb: pick(p, ['SUBURB', 'Suburb'], ''),
+            lat: pos.lat, lng: pos.lng,
+            type: 'free',
+            cost: 'Free, 15 min limit',
+            hours: pick(p, ['HOURS', 'Hours'], 'See signage'),
+            availability: 'Quick-stop only — good for pickups/drop-offs, not all-day parking'
+          });
+        });
+      } catch (err) { errors.push(`Free 15 min parking: ${err.message}`); }
+    }
+
+    if (loaded.length > 0) {
+      loaded.forEach(s => parkingSpots.push(s));
+      liveDataCount = loaded.length;
+      statusEl.textContent = `Loaded ${liveDataCount} live records from City of Sydney.` +
+        (errors.length ? ` (${errors.length} dataset(s) failed — check console)` : '');
+      renderMarkers();
+    } else if (errors.length > 0) {
+      statusEl.textContent = `Live load failed: ${errors.join(' | ')}`;
+    } else {
+      statusEl.textContent = "Using sample data only.";
+    }
+
+    if (errors.length) console.error('Data load errors:', errors);
+  }
+
+  // TfNSW Car Park API — live occupancy, via your own proxy (see CONFIG note above)
+  async function loadTfnswOccupancy() {
+    if (!CONFIG.tfnswProxyUrl) return;
+    try {
+      const res = await fetch(CONFIG.tfnswProxyUrl);
+      const data = await res.json();
+      // Expected shape from TfNSW: an array of car parks with spots/occupancy.
+      // Merge matching spots by name/location here once you see the real
+      // response shape from your proxy — left as a hook to fill in.
+      console.log("TfNSW occupancy data:", data);
+    } catch (err) {
+      console.error("TfNSW proxy fetch failed:", err);
+    }
+  }
+
+  // =====================================================================
+  // MAP SETUP
+  // =====================================================================
+  const map = L.map('map', { zoomControl: false }).setView([-33.8850, 151.2350], 12);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    maxZoom: 19
+  }).addTo(map);
+
+  const typeColor = { free: '#4caf7d', paid: '#e07a3f', permit: '#8b7dd8', community: '#4ac9e0' };
+  const typeLabel = { free: 'Free', paid: 'Paid / Metered', permit: 'Permit Zone', community: 'Community-added' };
+
+  const clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 45,
+    iconCreateFunction: function(cluster) {
+      const count = cluster.getChildCount();
+      return L.divIcon({
+        html: `<div style="background:var(--asphalt-light); border:2px solid var(--line-yellow); color:var(--line-yellow); font-family:'Oswald',sans-serif; font-weight:600; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px;">${count}</div>`,
+        className: '',
+        iconSize: [36, 36]
+      });
+    }
+  });
+  map.addLayer(clusterGroup);
+
+  let markers = [];
+  let markerById = {};
+
+  // Opens the device's own maps app for turn-by-turn directions. This is
+  // deliberately NOT built as an in-page nav feature — the idea is you pick
+  // your spot before you set off (or your passenger picks it), then Google
+  // Maps / Apple Maps (whichever the phone defaults to) takes over for the
+  // actual driving guidance, since that's what those apps are built and
+  // tested for.
+  function navigateToSpot(lat, lng, name) {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const url = isIOS
+      ? `https://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`
+      : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+    window.open(url, '_blank');
+  }
+
+  function haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function getFilteredSpots() {
+    const activeTypes = Array.from(document.querySelectorAll('.type-filter:checked')).map(el => el.value);
+    const query = document.getElementById('search-box').value.trim().toLowerCase();
+    return parkingSpots.filter(s => {
+      const typeOk = activeTypes.includes(s.type);
+      const searchOk = !query || s.name.toLowerCase().includes(query) || (s.suburb || '').toLowerCase().includes(query);
+      return typeOk && searchOk;
+    });
+  }
+
+  function renderMarkers() {
+    clusterGroup.clearLayers();
+    markers = [];
+    markerById = {};
+
+    const visible = getFilteredSpots();
+
+    visible.forEach(spot => {
+      const marker = L.circleMarker([spot.lat, spot.lng], {
+        radius: 9,
+        fillColor: typeColor[spot.type],
+        color: '#1b1d21',
+        weight: 2,
+        fillOpacity: 0.9
+      });
+
+      marker.bindPopup(`
+        <div class="badge ${spot.type}">${typeLabel[spot.type]}</div>
+        <div class="popup-title">${spot.name}</div>
+        <div class="popup-row"><b>Cost:</b> ${spot.cost}</div>
+        <div class="popup-row"><b>Hours:</b> ${spot.hours}</div>
+        <div class="popup-row"><b>Typically:</b> ${spot.availability}</div>
+        ${spot.type === 'community' ? '<div class="community-warning">⚠ Added by a user, not from official data — may be inaccurate or outdated.</div>' : ''}
+        <button class="nav-btn" data-lat="${spot.lat}" data-lng="${spot.lng}" data-name="${spot.name.replace(/"/g,'&quot;')}">🧭 Navigate here</button>
+      `);
+
+      marker.on('popupopen', () => {
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+          btn.addEventListener('click', () => navigateToSpot(btn.dataset.lat, btn.dataset.lng, btn.dataset.name));
+        });
+      });
+
+      markers.push(marker);
+      markerById[spot.id] = marker;
+    });
+
+    clusterGroup.addLayers(markers);
+
+    document.getElementById('stat-total').textContent = visible.length;
+    document.getElementById('stat-free').textContent = visible.filter(s => s.type === 'free').length;
+
+    renderNearbyList(visible);
+  }
+
+  // =====================================================================
+  // GEOLOCATION — "near me" + live tracking while moving/driving
+  // =====================================================================
+  let userLatLng = null;
+  let youMarker = null;
+  let watchId = null;
+  let followMode = false;
+
+  function renderNearbyList(visible) {
+    const listEl = document.getElementById('nearby-list');
+    if (!userLatLng) {
+      listEl.innerHTML = 'Turn on location to see spots ranked by distance.';
+      return;
+    }
+    const ranked = visible
+      .map(s => ({ ...s, dist: haversine(userLatLng.lat, userLatLng.lng, s.lat, s.lng) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 8);
+
+    listEl.innerHTML = ranked.map(s => `
+      <div class="nearby-item" data-id="${s.id}">
+        <div class="n-name">${s.name}</div>
+        <div class="n-meta">${typeLabel[s.type]} · ${s.cost}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <span class="n-dist">${s.dist < 1 ? Math.round(s.dist*1000)+' m' : s.dist.toFixed(1)+' km'} away</span>
+          <button class="nearby-nav-btn" data-lat="${s.lat}" data-lng="${s.lng}" data-name="${s.name.replace(/"/g,'&quot;')}">Navigate →</button>
+        </div>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.nearby-item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.classList.contains('nearby-nav-btn')) return; // handled separately below
+        const spot = parkingSpots.find(s => s.id == el.dataset.id);
+        if (spot) {
+          const m = markerById[spot.id];
+          if (m) {
+            clusterGroup.zoomToShowLayer(m, () => m.openPopup());
+          } else {
+            map.flyTo([spot.lat, spot.lng], 16);
+          }
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.nearby-nav-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigateToSpot(btn.dataset.lat, btn.dataset.lng, btn.dataset.name);
+      });
+    });
+  }
+
+  function updateUserLocation(pos) {
+    userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+    if (!youMarker) {
+      youMarker = L.marker([userLatLng.lat, userLatLng.lng], {
+        icon: L.divIcon({ className: '', html: '<div class="you-marker"></div>', iconSize: [18, 18] })
+      }).addTo(map);
+    } else {
+      youMarker.setLatLng([userLatLng.lat, userLatLng.lng]);
+    }
+
+    if (followMode) {
+      map.setView([userLatLng.lat, userLatLng.lng], map.getZoom());
+    }
+
+    document.getElementById('loc-status').textContent = 'Location on — tracking live';
+    document.getElementById('loc-status').classList.remove('err');
+    renderNearbyList(getFilteredSpots());
+  }
+
+  function handleLocationError(err) {
+    document.getElementById('loc-status').textContent = 'Location permission denied or unavailable';
+    document.getElementById('loc-status').classList.add('err');
+    console.error(err);
+  }
+
+  document.getElementById('locate-btn').addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported on this device/browser.');
+      return;
+    }
+    const btn = document.getElementById('locate-btn');
+
+    if (watchId === null) {
+      // Turning ON: ask permission, start continuous tracking (good for driving)
+      watchId = navigator.geolocation.watchPosition(updateUserLocation, handleLocationError, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000
+      });
+      followMode = true;
+      btn.textContent = '📍 Following you';
+      btn.classList.add('active');
+    } else {
+      // Turning OFF
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      followMode = false;
+      btn.textContent = '📍 Use my location';
+      btn.classList.remove('active');
+      document.getElementById('loc-status').textContent = 'Location off';
+      document.getElementById('loc-status').classList.remove('err');
+    }
+  });
+
+  // Manual map drag turns off auto-follow so users can look around freely
+  map.on('dragstart', () => { followMode = false; });
+
+  document.querySelectorAll('.type-filter').forEach(el => el.addEventListener('change', renderMarkers));
+  document.getElementById('search-box').addEventListener('input', renderMarkers);
+
+  // =====================================================================
+  // COMMUNITY-ADDED SPOTS
+  // Saved to this browser's localStorage only — NOT shared with other
+  // users yet. Making these visible to everyone needs a real shared
+  // backend (e.g. Firebase/Supabase free tier) added later. Every
+  // community spot is clearly badged as user-reported, separate from
+  // the official City of Sydney data, since it hasn't been verified.
+  // =====================================================================
+  const STORAGE_KEY = 'parksyd_community_spots';
+
+  async function loadCommunitySpots() {
+    if (window.firestoreReady) {
+      try {
+        const spots = await window.fetchCommunitySpotsFromFirestore();
+        spots.forEach(s => parkingSpots.push({ ...s, type: 'community' }));
+        document.getElementById('data-status').textContent += ` +${spots.length} shared community spots.`;
+        return;
+      } catch (err) {
+        console.error('Firestore load failed, falling back to local:', err);
+      }
+    }
+    // Fallback: local-only (only visible on this device)
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const saved = raw ? JSON.parse(raw) : [];
+      saved.forEach(s => parkingSpots.push(s));
+    } catch (err) {
+      console.error('Could not load community spots:', err);
+    }
+  }
+
+  async function persistCommunitySpot(spot) {
+    if (window.firestoreReady) {
+      try {
+        await window.saveCommunitySpotToFirestore(spot);
+        return;
+      } catch (err) {
+        console.error('Firestore save failed, saving locally instead:', err);
+      }
+    }
+    // Fallback: local-only
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const saved = raw ? JSON.parse(raw) : [];
+    saved.push(spot);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+  }
+
+  let addSpotMode = false;
+  let pendingLatLng = null;
+
+  const addSpotBtn = document.getElementById('add-spot-btn');
+  const addSpotForm = document.getElementById('add-spot-form');
+
+  addSpotBtn.addEventListener('click', () => {
+    addSpotMode = !addSpotMode;
+    addSpotBtn.classList.toggle('active', addSpotMode);
+    addSpotBtn.textContent = addSpotMode ? '📍 Click the map…' : '📍 + Add a spot';
+    addSpotForm.classList.remove('visible');
+  });
+
+  map.on('click', (e) => {
+    if (!addSpotMode) return;
+    pendingLatLng = e.latlng;
+
+    const point = map.latLngToContainerPoint(e.latlng);
+    addSpotForm.style.left = Math.min(point.x + 20, map.getSize().x - 300) + 'px';
+    addSpotForm.style.top = Math.max(point.y - 20, 10) + 'px';
+    addSpotForm.classList.add('visible');
+  });
+
+  document.getElementById('cancel-spot-btn').addEventListener('click', () => {
+    addSpotForm.classList.remove('visible');
+  });
+
+  document.getElementById('save-spot-btn').addEventListener('click', async () => {
+    if (!pendingLatLng) return;
+    const name = document.getElementById('new-spot-name').value.trim();
+    if (!name) { alert('Give the spot a name or street first.'); return; }
+
+    const newSpot = {
+      id: `community-${Date.now()}`,
+      name: name,
+      suburb: '',
+      lat: pendingLatLng.lat,
+      lng: pendingLatLng.lng,
+      type: 'community',
+      cost: document.getElementById('new-spot-cost').value.trim() || 'Not specified',
+      hours: 'Reported by a user, not verified',
+      availability: document.getElementById('new-spot-notes').value.trim() || 'No additional notes'
+    };
+
+    parkingSpots.push(newSpot);
+    await persistCommunitySpot(newSpot);
+    renderMarkers();
+
+    // Reset form + exit add mode
+    document.getElementById('new-spot-name').value = '';
+    document.getElementById('new-spot-cost').value = '';
+    document.getElementById('new-spot-notes').value = '';
+    addSpotForm.classList.remove('visible');
+    addSpotMode = false;
+    addSpotBtn.classList.remove('active');
+    addSpotBtn.textContent = '📍 + Add a spot';
+  });
+
+  (async () => {
+    await loadCommunitySpots();
+    renderMarkers();
+    loadCityOfSydneyData();
+    loadTfnswOccupancy();
+  })();
+</script>
+</body>
+</html>

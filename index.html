@@ -837,29 +837,37 @@
 
       let added = 0, skipped = 0;
       data.forEach(facility => {
-        const coords = FACILITY_COORDS[facility.facility_id];
-        if (!coords) { skipped++; return; }
+        try {
+          const coords = FACILITY_COORDS[facility.facility_id];
+          if (!coords) { skipped++; return; }
 
-        // API response shape can vary by facility type; try a few likely
-        // fields for "spots available" before falling back to a generic note.
-        const spotsAvailable = facility.spots?.length
-          ? facility.spots.map(s => `${s.name || s.zone_name || 'Zone'}: ${s.occupied}/${s.total} occupied`).join(', ')
-          : facility.zones?.length
-          ? facility.zones.map(z => `${z.zone_name || 'Zone'}: ${z.occupied}/${z.total}`).join(', ')
-          : 'Live data available, format not yet parsed — check console';
+          const totalCapacity = parseInt(facility.spots, 10);
+          const occupiedRaw = facility.occupancy && facility.occupancy.total;
+          const occupied = (occupiedRaw !== null && occupiedRaw !== undefined) ? parseInt(occupiedRaw, 10) : null;
+          const available = (!isNaN(totalCapacity) && occupied !== null && !isNaN(occupied))
+            ? totalCapacity - occupied
+            : null;
 
-        parkingSpots.push({
-          id: `parkride-${facility.facility_id}`,
-          name: facility.name,
-          suburb: '',
-          lat: coords.lat,
-          lng: coords.lng,
-          type: 'parkride',
-          cost: 'Free (Park&Ride)',
-          hours: 'Station operating hours',
-          availability: spotsAvailable
-        });
-        added++;
+          const availabilityText = available !== null
+            ? `${available} of ${totalCapacity} spots available (live, updated ${facility.message_date ? new Date(facility.message_date).toLocaleString('en-AU', { timeZone: 'Australia/Sydney', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : 'recently'})`
+            : `Total capacity ${isNaN(totalCapacity) ? 'unknown' : totalCapacity}, live occupancy not reported for this facility`;
+
+          parkingSpots.push({
+            id: `parkride-${facility.facility_id}`,
+            name: facility.name,
+            suburb: '',
+            lat: coords.lat,
+            lng: coords.lng,
+            type: 'parkride',
+            cost: 'Free (Park&Ride)',
+            hours: 'Station operating hours',
+            availability: availabilityText
+          });
+          added++;
+        } catch (err) {
+          console.error(`Skipped facility ${facility.facility_id} due to parsing error:`, err);
+          skipped++;
+        }
       });
 
       statusEl.textContent += ` +${added} live Park&Ride car parks${skipped ? ` (${skipped} skipped, missing coords)` : ''}.`;

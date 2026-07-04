@@ -425,6 +425,7 @@
     <label class="filter-row"><input type="checkbox" class="type-filter" value="paid" checked><span class="dot paid"></span> Paid / metered</label>
     <label class="filter-row"><input type="checkbox" class="type-filter" value="permit" checked><span class="dot permit"></span> Permit zone</label>
     <label class="filter-row"><input type="checkbox" class="type-filter" value="community" checked><span class="dot community"></span> Community-added</label>
+    <label class="filter-row"><input type="checkbox" class="type-filter" value="parkride" checked><span class="dot" style="background:#f4c430;"></span> Park&Ride (live)</label>
 
     <div class="section-label">Overview</div>
     <div class="stat-grid">
@@ -773,18 +774,100 @@
     if (errors.length) console.error('Data load errors:', errors);
   }
 
+  // Known lat/lng for TfNSW Park&Ride / Metro car park facilities. The API
+  // itself doesn't return coordinates, only facility IDs and names, so
+  // these are mapped by hand from the station/facility names it returns.
+  // Matched by facility ID (stable) — if TfNSW adds new facilities, they'll
+  // just be skipped until added here (logged to console, not silently lost).
+  const FACILITY_COORDS = {
+    1: { lat: -33.7025, lng: 150.8956 },   // Tallawong
+    2: { lat: -33.7241, lng: 150.9339 },   // Kellyville
+    3: { lat: -33.7396, lng: 150.9525 },   // Bella Vista
+    4: { lat: -33.7318, lng: 150.9878 },   // Hills Showground
+    5: { lat: -33.7423, lng: 151.0486 },   // Cherrybrook
+    6: { lat: -33.7551, lng: 151.1522 },   // Gordon
+    7: { lat: -34.6708, lng: 150.8555 },   // Kiama
+    8: { lat: -33.4267, lng: 151.3428 },   // Gosford
+    9: { lat: -33.9535, lng: 150.9944 },   // Revesby
+    10: { lat: -33.6892, lng: 151.2973 },  // Warriewood
+    11: { lat: -33.7176, lng: 151.2953 },  // Narrabeen
+    12: { lat: -33.6733, lng: 151.3049 },  // Mona Vale
+    13: { lat: -33.7511, lng: 151.2860 },  // Dee Why
+    14: { lat: -33.8054, lng: 151.0917 },  // West Ryde
+    15: { lat: -34.0311, lng: 151.0578 },  // Sutherland
+    16: { lat: -33.9950, lng: 150.8022 },  // Leppington
+    17: { lat: -33.9639, lng: 150.8181 },  // Edmondson Park (south)
+    18: { lat: -33.7639, lng: 150.7739 },  // St Marys
+    19: { lat: -34.0672, lng: 150.8144 },  // Campbelltown (Farrow Rd)
+    20: { lat: -34.0644, lng: 150.8161 },  // Campbelltown (Hurley St)
+    21: { lat: -33.7508, lng: 150.6944 },  // Penrith at-grade
+    22: { lat: -33.7508, lng: 150.6944 },  // Penrith multi-level
+    23: { lat: -33.9111, lng: 150.9436 },  // Warwick Farm
+    24: { lat: -33.6969, lng: 150.8722 },  // Schofields
+    25: { lat: -33.7036, lng: 151.0989 },  // Hornsby
+    26: { lat: -33.7025, lng: 150.8956 },  // Tallawong P1
+    27: { lat: -33.7025, lng: 150.8956 },  // Tallawong P2
+    28: { lat: -33.7025, lng: 150.8956 },  // Tallawong P3
+    29: { lat: -33.7241, lng: 150.9339 },  // Kellyville north
+    30: { lat: -33.7241, lng: 150.9339 },  // Kellyville south
+    31: { lat: -33.7396, lng: 150.9525 },  // Bella Vista
+    32: { lat: -33.7318, lng: 150.9878 },  // Hills Showground
+    33: { lat: -33.7423, lng: 151.0486 },  // Cherrybrook
+    34: { lat: -33.7772, lng: 151.1719 },  // Lindfield Village Green
+    35: { lat: -33.9464, lng: 151.0803 },  // Beverly Hills
+    36: { lat: -33.7486, lng: 150.6519 },  // Emu Plains
+    37: { lat: -33.9581, lng: 151.0428 },  // Riverwood
+    38: { lat: -33.7808, lng: 151.0294 },  // North Rocks
+    39: { lat: -33.9639, lng: 150.8181 },  // Edmondson Park north
+    486: { lat: -33.8886, lng: 151.1272 }, // Ashfield
+    487: { lat: -33.9647, lng: 151.1339 }, // Kogarah
+    488: { lat: -33.7811, lng: 150.9367 }, // Seven Hills
+    489: { lat: -33.7758, lng: 151.2792 }, // Manly Vale
+    490: { lat: -33.7647, lng: 151.2703 }, // Brookvale
+  };
+
   // TfNSW Car Park API — live occupancy, via your own proxy (see CONFIG note above)
   async function loadTfnswOccupancy() {
     if (!CONFIG.tfnswProxyUrl) return;
+    const statusEl = document.getElementById('data-status');
     try {
       const res = await fetch(CONFIG.tfnswProxyUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      // Expected shape from TfNSW: an array of car parks with spots/occupancy.
-      // Merge matching spots by name/location here once you see the real
-      // response shape from your proxy — left as a hook to fill in.
-      console.log("TfNSW occupancy data:", data);
+
+      let added = 0, skipped = 0;
+      data.forEach(facility => {
+        const coords = FACILITY_COORDS[facility.facility_id];
+        if (!coords) { skipped++; return; }
+
+        // API response shape can vary by facility type; try a few likely
+        // fields for "spots available" before falling back to a generic note.
+        const spotsAvailable = facility.spots?.length
+          ? facility.spots.map(s => `${s.name || s.zone_name || 'Zone'}: ${s.occupied}/${s.total} occupied`).join(', ')
+          : facility.zones?.length
+          ? facility.zones.map(z => `${z.zone_name || 'Zone'}: ${z.occupied}/${z.total}`).join(', ')
+          : 'Live data available, format not yet parsed — check console';
+
+        parkingSpots.push({
+          id: `parkride-${facility.facility_id}`,
+          name: facility.name,
+          suburb: '',
+          lat: coords.lat,
+          lng: coords.lng,
+          type: 'parkride',
+          cost: 'Free (Park&Ride)',
+          hours: 'Station operating hours',
+          availability: spotsAvailable
+        });
+        added++;
+      });
+
+      statusEl.textContent += ` +${added} live Park&Ride car parks${skipped ? ` (${skipped} skipped, missing coords)` : ''}.`;
+      console.log('TfNSW occupancy raw sample:', data[0]);
+      renderMarkers();
     } catch (err) {
       console.error("TfNSW proxy fetch failed:", err);
+      statusEl.textContent += ` ⚠ TfNSW live data failed to load.`;
     }
   }
 
@@ -799,8 +882,8 @@
     maxZoom: 19
   }).addTo(map);
 
-  const typeColor = { free: '#4caf7d', paid: '#e07a3f', permit: '#8b7dd8', community: '#4ac9e0' };
-  const typeLabel = { free: 'Free', paid: 'Paid / Metered', permit: 'Permit Zone', community: 'Community-added' };
+  const typeColor = { free: '#4caf7d', paid: '#e07a3f', permit: '#8b7dd8', community: '#4ac9e0', parkride: '#f4c430' };
+  const typeLabel = { free: 'Free', paid: 'Paid / Metered', permit: 'Permit Zone', community: 'Community-added', parkride: 'Park&Ride (live)' };
 
   const clusterGroup = L.markerClusterGroup({
     maxClusterRadius: 45,

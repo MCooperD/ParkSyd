@@ -1035,11 +1035,16 @@
       try {
         const spots = await window.fetchCommunitySpotsFromFirestore();
         spots.forEach(s => parkingSpots.push({ ...s, type: 'community' }));
-        document.getElementById('data-status').textContent += ` +${spots.length} shared community spots.`;
+        console.log(`✅ Firestore read succeeded: ${spots.length} shared community spots loaded.`);
+        document.getElementById('data-status').textContent += ` +${spots.length} shared community spots (Firestore OK).`;
         return;
       } catch (err) {
-        console.error('Firestore load failed, falling back to local:', err);
+        console.error('❌ Firestore load failed, falling back to local-only:', err);
+        document.getElementById('data-status').textContent += ` ⚠ Firestore read failed (${err.message}) — using local-only spots.`;
       }
+    } else {
+      console.warn('⚠ window.firestoreReady is false — Firebase config may be missing/incorrect, or the module script failed to load.');
+      document.getElementById('data-status').textContent += ` ⚠ Firestore not connected — check firebaseConfig.`;
     }
     // Fallback: local-only (only visible on this device)
     try {
@@ -1055,16 +1060,20 @@
     if (window.firestoreReady) {
       try {
         await window.saveCommunitySpotToFirestore(spot);
-        return;
+        console.log('✅ Firestore write succeeded for spot:', spot.name);
+        return true;
       } catch (err) {
-        console.error('Firestore save failed, saving locally instead:', err);
+        console.error('❌ Firestore save failed, saving locally instead:', err);
       }
+    } else {
+      console.warn('⚠ Firestore not ready at save time — saving locally only.');
     }
     // Fallback: local-only
     const raw = localStorage.getItem(STORAGE_KEY);
     const saved = raw ? JSON.parse(raw) : [];
     saved.push(spot);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    return false;
   }
 
   let addSpotMode = false;
@@ -1112,8 +1121,12 @@
     };
 
     parkingSpots.push(newSpot);
-    await persistCommunitySpot(newSpot);
+    const wentToFirestore = await persistCommunitySpot(newSpot);
     renderMarkers();
+
+    alert(wentToFirestore
+      ? "Saved and shared — this spot will now show up for everyone using the app."
+      : "Saved to this device only — the shared database wasn't reached. Check the browser console (F12) for the exact error.");
 
     // Reset form + exit add mode
     document.getElementById('new-spot-name').value = '';
@@ -1129,7 +1142,6 @@
     await loadCommunitySpots();
     renderMarkers();
     loadCityOfSydneyData();
-    loadRateZones();
     loadTfnswOccupancy();
   })();
 </script>
